@@ -1,0 +1,21 @@
+[workspace]
+authors = ["Eric Ma <ericmajinglong@gmail.com>"]
+channels = ["https://prefix.dev/conda-forge"]
+description = "vLLM inference server on Modal with GPU snapshot support"
+name = "vllm-on-modal"
+platforms = ["osx-arm64", "linux-64"]
+version = "0.1.0"
+
+[tasks]
+deploy = "modal deploy endpoint.py"
+deploy-test = "modal deploy endpoint.py --env test"
+serve = "modal serve endpoint.py"
+test = "modal run endpoint.py"
+
+[dependencies]
+python = ">=3.12.0,<3.13"
+aiohttp = ">=3.9.0,<4"
+loguru = ">=0.7.2,<0.8"
+
+[pypi-dependencies]
+modal = ">=0.67.18"

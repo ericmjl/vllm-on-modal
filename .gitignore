@@ -1,0 +1,8 @@
+__pycache__
+*.egg-info
+
+# pixi environments
+.pixi
+
+# SQLite database
+message_log.db

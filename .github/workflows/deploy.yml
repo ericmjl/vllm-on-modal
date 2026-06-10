@@ -1,0 +1,89 @@
+name: Deploy and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  deploy-test:
+    name: Deploy to Modal Test Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+
+      - name: Install dependencies
+        run: pixi install
+
+      - name: Authenticate with Modal
+        run: |
+          pixi run modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+
+      - name: Deploy to test environment
+        run: pixi run modal deploy endpoint.py --env test
+
+  test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: deploy-test
+    timeout-minutes: 15
+
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+
+      - name: Install dependencies
+        run: pixi install
+
+      - name: Authenticate with Modal
+        run: |
+          pixi run modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+
+      - name: Run smoke test
+        run: pixi run modal run endpoint.py --env test
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    timeout-minutes: 30
+
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+
+      - name: Install dependencies
+        run: pixi install
+
+      - name: Authenticate with Modal
+        run: |
+          pixi run modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+
+      - name: Deploy to production
+        run: pixi run modal deploy endpoint.py
