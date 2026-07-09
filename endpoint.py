@@ -15,9 +15,7 @@ N_GPU = 1
 app = modal.App("vllm-service")
 
 vllm_image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12"
-    )
+    modal.Image.from_registry("nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12")
     .entrypoint([])
     .uv_pip_install("vllm==0.21.0")
     .env(
@@ -60,31 +58,19 @@ def warmup():
         ).raise_for_status()
 
 
-def sleep(level=1):
-    requests.post(
-        f"http://localhost:{VLLM_PORT}/sleep?level={level}"
-    ).raise_for_status()
-
-
-def wake_up():
-    requests.post(f"http://localhost:{VLLM_PORT}/wake_up").raise_for_status()
-
-
 @app.cls(
     image=vllm_image,
     gpu="L40S",
     scaledown_window=15 * MINUTES,
-    timeout=10 * MINUTES,
+    timeout=20 * MINUTES,
     volumes={
         "/root/.cache/huggingface": hf_cache_vol,
         "/root/.cache/vllm": vllm_cache_vol,
     },
-    enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=32)
 class VllmServer:
-    @modal.enter(snap=True)
+    @modal.enter()
     def start(self):
         cmd = [
             "vllm",
@@ -99,13 +85,12 @@ class VllmServer:
             "--uvicorn-log-level=info",
             "--tensor-parallel-size",
             str(N_GPU),
-            "--enable-sleep-mode",
             "--max-num-seqs",
-            "4",
+            "2",
             "--max-model-len",
-            "32768",
+            "131072",
             "--max-num-batched-tokens",
-            "32768",
+            "131072",
             "--gpu-memory-utilization",
             "0.90",
             "--quantization",
@@ -113,6 +98,9 @@ class VllmServer:
             "--dtype",
             "float16",
             "--enforce-eager",
+            "--enable-auto-tool-choice",
+            "--tool-call-parser",
+            "hermes",
         ]
 
         print(*cmd)
@@ -123,14 +111,7 @@ class VllmServer:
 
         warmup()
 
-        sleep()
-
-    @modal.enter(snap=False)
-    def restore(self):
-        wake_up()
-        wait_ready(self.vllm_proc)
-
-    @modal.web_server(port=VLLM_PORT, startup_timeout=10 * MINUTES)
+    @modal.web_server(port=VLLM_PORT, startup_timeout=20 * MINUTES)
     def serve(self):
         pass
 
@@ -157,9 +138,7 @@ async def test(test_timeout=10 * MINUTES, content=None, twice=True):
 
     async with aiohttp.ClientSession(base_url=url) as session:
         print(f"Running health check for server at {url}")
-        async with session.get(
-            "/health", timeout=test_timeout - 1 * MINUTES
-        ) as resp:
+        async with session.get("/health", timeout=test_timeout - 1 * MINUTES) as resp:
             up = resp.status == 200
         assert up, f"Failed health check for server at {url}"
         print(f"Successful health check for server at {url}")
