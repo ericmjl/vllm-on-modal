@@ -9,7 +9,7 @@ import modal
 MINUTES = 60
 VLLM_PORT = 8000
 
-MODEL_NAME = "palmfuture/Qwen3.6-35B-A3B-GPTQ-Int4"
+MODEL_NAME = "google/gemma-4-12B-it"
 N_GPU = 1
 
 app = modal.App("vllm-service")
@@ -17,7 +17,15 @@ app = modal.App("vllm-service")
 vllm_image = (
     modal.Image.from_registry("nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12")
     .entrypoint([])
-    .uv_pip_install("vllm==0.21.0")
+    .uv_pip_install(
+        "vllm",
+        pre=True,
+        # Pin vllm to cu129 nightly; add PyPI only for non-vllm deps.
+        index_url="https://wheels.vllm.ai/nightly/cu129",
+        extra_index_url="https://download.pytorch.org/whl/cu129",
+        extra_options="--extra-index-url https://pypi.org/simple",
+    )
+    .uv_pip_install("transformers>=5.5.0")
     .env(
         {
             "HF_XET_HIGH_PERFORMANCE": "1",
@@ -60,15 +68,15 @@ def warmup():
 
 @app.cls(
     image=vllm_image,
-    gpu="L40S",
+    gpu="A100",
     scaledown_window=15 * MINUTES,
-    timeout=20 * MINUTES,
+    timeout=10 * MINUTES,
     volumes={
         "/root/.cache/huggingface": hf_cache_vol,
         "/root/.cache/vllm": vllm_cache_vol,
     },
 )
-@modal.concurrent(max_inputs=32)
+@modal.concurrent(max_inputs=16)
 class VllmServer:
     @modal.enter()
     def start(self):
@@ -86,21 +94,21 @@ class VllmServer:
             "--tensor-parallel-size",
             str(N_GPU),
             "--max-num-seqs",
-            "2",
+            "8",
             "--max-model-len",
-            "131072",
+            "32768",
             "--max-num-batched-tokens",
-            "131072",
+            "32768",
             "--gpu-memory-utilization",
             "0.90",
-            "--quantization",
-            "gptq",
-            "--dtype",
-            "float16",
-            "--enforce-eager",
+            "--limit-mm-per-prompt",
+            '{"image": 0, "audio": 0}',
             "--enable-auto-tool-choice",
+            "--reasoning-parser",
+            "gemma4",
             "--tool-call-parser",
-            "hermes",
+            "gemma4",
+            "--async-scheduling",
         ]
 
         print(*cmd)
@@ -111,7 +119,7 @@ class VllmServer:
 
         warmup()
 
-    @modal.web_server(port=VLLM_PORT, startup_timeout=20 * MINUTES)
+    @modal.web_server(port=VLLM_PORT, startup_timeout=10 * MINUTES)
     def serve(self):
         pass
 
